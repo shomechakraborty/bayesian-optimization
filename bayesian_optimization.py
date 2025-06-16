@@ -4,21 +4,19 @@ from neural_network_class import NeuralNetworkModel
 
 def main():
     hyperparameters = {
-    "model_size": (5, False, None, None),
-    "neuron_size_base": (2, False, None, None),
-    "training_epochs": (75, False, None, None),
-    "training_data_proportion": (0.75, True, None, None),
-    "delta": (1.0, True, None, None),
-    "learning_rate": (0.001, True, None, None),
-    "learning_rate_decay_rate": (0.0001, True, None, None),
-    "momentum_factor": (0.9, True, None, None),
-    "max_norm_benchmark": (90, True, None, 100),
-    "ld": (0.01, True, None, None)
+    "model_size": (5, True, 2, 7, 6),
+    "neuron_size_base": (2, True, 2, 4, 3),
+    "training_epochs": (75, True, 1, 750, 750),
+    "training_data_proportion": (0.75, False, 0.01, 0.99, 1000),
+    "delta": (1.0, False, 0, 10, 1000),
+    "learning_rate": (0.01, False, 0, 0.1, 1000),
+    "learning_rate_decay_rate": (0.001, False, 0, 0.01, 1000),
+    "momentum_factor": (0.9, False, 0, 1, 1000),
+    "max_norm_benchmark": (90, False, 0.01, 99.99, 1000),
+    "l2": (0.01, False, 0, 0.1, 1000)
     }
-    hyperparameters_2 = {
-    "max_norm_benchmark": (90, 6, None, 100)
-    }
-    optimal_hyperparameter_values = optimize_neural_network_hyperparameters("processed-us-medical-insurance-costs-data.csv", hyperparameters_2, 10, True)
+
+    optimal_hyperparameter_values = optimize_neural_network_hyperparameters("trial-12-training-data.csv", hyperparameters, False)
     print(optimal_hyperparameter_values)
 
 """This method calculates the covariance value between any 2 parameter values using the Matern 5/2
@@ -111,22 +109,26 @@ def calculate_gaussian_process_interval(training_data_points, noise, x_values, s
         plt.plot(x_values, predictive_lower_bound_values, label = "Lower 95% Confidence Bound")
         plt.plot(x_values, predictive_mean_values, label = "Mean")
         plt.plot(x_values, predictive_upper_bound_values, label = "Upper 95% Confidence Bound")
-        plt.xlabel("Hyperparameter Test Values")
-        plt.ylabel("Cost Values")
+        plt.xlabel("Hyperparameter Test Value")
+        plt.ylabel("Cost Value")
         plt.title("Gaussian Process Distribution 95% Confidence Interval")
         plt.legend()
         plt.show()
     return predictive_mean_values, predictive_std_dev_values
+
+def get_minimum_point(points):
+    minimum_point = points[0]
+    for i in range(len(points)):
+        if points[i][1] < minimum_point[1]:
+            minimum_point = points[i]
+    return minimum_point
 
 """This function runs an Expected Improvement Acquisition function, used to determine the next
 optimal hyperparameter value to test in a Gaussian Process modeling the true objective cost function
 for a given hyperparameter."""
 def calculate_optimal_acquisition_value(training_data_points, noise, slack, x_values, show):
     expected_improvement_values = []
-    minimum_value = training_data_points[0][1]
-    for i in range(len(training_data_points)):
-        if training_data_points[i][1] < minimum_value:
-            minimum_value = training_data_points[i][1]
+    minimum_value = get_minimum_point(training_data_points)[1]
     if show:
         predictive_mean_values, predictive_std_dev_values = calculate_gaussian_process_interval(training_data_points, noise, x_values, True)
     else:
@@ -145,8 +147,8 @@ def calculate_optimal_acquisition_value(training_data_points, noise, slack, x_va
             optimal_parameter_value = x_values[i]
     if show:
         plt.plot(x_values, expected_improvement_values, label = "Expected Improvement")
-        plt.xlabel("Hyperparameter Test Values")
-        plt.ylabel("Cost Values")
+        plt.xlabel("Hyperparameter Test Value")
+        plt.ylabel("Cost Value")
         plt.title("Expected Improvement Acquisition Function")
         plt.legend()
         plt.show()
@@ -155,102 +157,68 @@ def calculate_optimal_acquisition_value(training_data_points, noise, slack, x_va
 """This function calculates the error between 2 values, necessary to determine if optimal acquisition
 hyperparameter values are close enough to be considered similar."""
 def calculate_error(x1, x2):
-    return abs(x1 - x2) / x1
+    if x1 != 0:
+        return abs(x1 - x2) / x1
+    else:
+        return x2
 
-"""This function runs the acquisition function for each numerical hyperparameter in the neural network
-model to determine the optimal value for each hyperparameter, based on the model's training data. The function
-keeps evaluating optimal acquisition hyperparameter values for a given parameter until the the last 3 optimal acquisition
-hyperparameter values are close enough - with an error of less than 1% - to be considered similar and the actual resulting cost
-value from the last optimal hyperparameter value is the minimum of all costs from previous optimal hyperparameter values
-yielded by the acquisiton function (or if the acquisition functions returns the same values)."""
-def optimize_neural_network_hyperparameters(model_training_data_file_name, hyperparameters, spacing, show, model_reference = None):
+"""Runs the acquisition function for each numerical hyperparameter in the neural network model to
+determine the optimal value for each hyperparameter, based on the model's training data. The function
+keeps evaluating optimal acquisition hyperparameter values for a given parameter until the the last 3 optimal
+acquisition hyperparameter values are close enough - with an error of less than 1% - to be considered similar
+(or if the acquisition function returns the same values)."""
+def optimize_neural_network_hyperparameters(model_training_data_file_name, hyperparameters, show, model_reference = None):
     optimal_hyperparameter_values = {}
     for hyperparameter in hyperparameters:
-        optimal_acquisition_hyperparameter_values = []
-        optimal_cost_values = []
-        if hyperparameters[hyperparameter][2] == None and hyperparameters[hyperparameter][3] == None:
-            initial_hyperparameter_training_values = np.linspace(hyperparameters[hyperparameter][0] / spacing, hyperparameters[hyperparameter][0] * spacing, 10)
-        elif hyperparameters[hyperparameter][2] != None and hyperparameters[hyperparameter][3] != None:
-            initial_hyperparameter_training_values = np.linspace(hyperparameters[hyperparameter][2], hyperparameters[hyperparameter][3], 10)
-        elif hyperparameters[hyperparameter][2] != None:
-            initial_hyperparameter_training_values = np.linspace(hyperparameters[hyperparameter][2], hyperparameters[hyperparameter][0] * spacing, 10)
-        else:
-            initial_hyperparameter_training_values = np.linspace(hyperparameters[hyperparameter][0] / spacing, hyperparameters[hyperparameter][3], 10)
-        if hyperparameters[hyperparameter][1] == False:
-            for i in range(len(initial_hyperparameter_training_values)):
-                initial_hyperparameter_training_values[i] = round(initial_hyperparameter_training_values[i])
-        else:
-            for i in range(len(initial_hyperparameter_training_values)):
-                initial_hyperparameter_training_values[i] = round(initial_hyperparameter_training_values[i], round(abs(Decimal(str(initial_hyperparameter_training_values[i])).as_tuple().exponent) + (spacing / 10)))
         training_data_points = []
-        print("Step A")
-        print(initial_hyperparameter_training_values)
-        for i in range(len(initial_hyperparameter_training_values)):
-            hyperparameter_reference = {
-                hyperparameter: initial_hyperparameter_training_values[i]
-            }
-            if model_reference == None:
-                model = NeuralNetworkModel(training_data_file_name = model_training_data_file_name, **hyperparameter_reference)
-            else:
-                model = NeuralNetworkModel(training_data_file_name = model_training_data_file_name, text_reference = model_reference, **hyperparameter_reference)
-            training_data_points.append((initial_hyperparameter_training_values[i], model.average_validation_cost_values_over_epochs[model.minimum_cost_index]))
-        print("Step B")
-        print(training_data_points)
-        x_values = np.linspace(1 / 10, initial_hyperparameter_training_values[-1], int(initial_hyperparameter_training_values[-1] * 10))
-        optimal_acquisition_hyperparameter_value = calculate_optimal_acquisition_value(training_data_points, abs(model.noise), 0, x_values, True)
-        if hyperparameters[hyperparameter][1] == False:
-            optimal_acquisition_hyperparameter_value = round(optimal_acquisition_hyperparameter_value)
+        if hyperparameters[hyperparameter][2] != None and hyperparameters[hyperparameter][3] != None:
+            test_space = np.linspace(hyperparameters[hyperparameter][2], hyperparameters[hyperparameter][3], hyperparameters[hyperparameter][4]).tolist()
+        elif hyperparameters[hyperparameter][2] != None:
+            test_space = np.linspace(hyperparameters[hyperparameter][2], hyperparameters[hyperparameter][0] * hyperparameters[hyperparameter][4], hyperparameters[hyperparameter][4]).tolist()
+        elif hyperparameters[hyperparameter][3] != None:
+            test_space = np.linspace(1 / hyperparameters[hyperparameter][4], hyperparameters[hyperparameter][3], hyperparameters[hyperparameter][4]).tolist()
         else:
-            optimal_acquisition_hyperparameter_value = round(optimal_acquisition_hyperparameter_value, round(abs(Decimal(str(optimal_acquisition_hyperparameter_value)).as_tuple().exponent) + (spacing / 10)))
-        optimal_acquisition_hyperparameter_values.append(optimal_acquisition_hyperparameter_value)
+            test_space = np.linspace(1 / hyperparameters[hyperparameter][4], hyperparameters[hyperparameter][0] * hyperparameters[hyperparameter][4], hyperparameters[hyperparameter][4]).tolist()
+        if hyperparameters[hyperparameter][1]:
+            test_space = list(dict.fromkeys([round(test_value) for test_value in test_space]))
         hyperparameter_reference = {
-            hyperparameter: optimal_acquisition_hyperparameter_value
+            hyperparameter: hyperparameters[hyperparameter][0]
         }
         if model_reference == None:
             model = NeuralNetworkModel(training_data_file_name = model_training_data_file_name, **hyperparameter_reference)
         else:
             model = NeuralNetworkModel(training_data_file_name = model_training_data_file_name, text_reference = model_reference, **hyperparameter_reference)
-        optimal_cost_value = model.average_validation_cost_values_over_epochs[model.minimum_cost_index]
-        training_data_points.append((optimal_acquisition_hyperparameter_value, optimal_cost_value))
-        optimal_cost_values.append(optimal_cost_value)
-        print("Step C")
-        print(optimal_acquisition_hyperparameter_value)
-        print(optimal_cost_value)
-        minimum_optimal_cost_value = optimal_cost_values[0]
-        iteration = 1
-        while not(len(training_data_points) > 1 and training_data_points[-1][0] == training_data_points[-2][0]) and (optimal_cost_value != minimum_optimal_cost_value or not(len(optimal_acquisition_hyperparameter_values) > 2 and calculate_error(optimal_acquisition_hyperparameter_values[-3], optimal_acquisition_hyperparameter_values[-1]) <= 0.01 and calculate_error(optimal_acquisition_hyperparameter_values[-2], optimal_acquisition_hyperparameter_values[-1]) <= 0.01)):
-            optimal_acquisition_hyperparameter_value = calculate_optimal_acquisition_value(training_data_points, abs(model.noise), 0, x_values, True)
-            if hyperparameters[hyperparameter][1] == None:
-                optimal_acquisition_hyperparameter_value = round(optimal_acquisition_hyperparameter_value)
+        training_data_points.append((hyperparameters[hyperparameter][0], model.get_average_validation_cost_values_over_epochs()[model.get_minimum_cost_index()]))
+        print("Evaluation " + str(len(training_data_points)) + " - " + str(hyperparameters[hyperparameter][0]) + " - " + str(training_data_points[-1]))
+        while not(len(training_data_points) >= 3 and calculate_error(training_data_points[-3][0], training_data_points[-2][0]) <= 0.01 and calculate_error(training_data_points[-2][0], training_data_points[-1][0]) <= 0.01 and calculate_error(training_data_points[-3][0], training_data_points[-1][0]) <= 0.01):
+            if show:
+                optimal_acquisition_test_value = calculate_optimal_acquisition_value(training_data_points, model.get_noise(), 0, test_space, True)
             else:
-                optimal_acquisition_hyperparameter_value = round(optimal_acquisition_hyperparameter_value, round(abs(Decimal(str(optimal_acquisition_hyperparameter_value)).as_tuple().exponent) + (spacing / 10)))
-            optimal_acquisition_hyperparameter_values.append(optimal_acquisition_hyperparameter_value)
+                optimal_acquisition_test_value = calculate_optimal_acquisition_value(training_data_points, model.get_noise(), 0, test_space, False)
+            if any(point[0] == optimal_acquisition_test_value for point in training_data_points):
+                training_data_points.append((optimal_acquisition_test_value, None))
+                print("Break - " + str(optimal_acquisition_test_value))
+                break
             hyperparameter_reference = {
-                hyperparameter: optimal_acquisition_hyperparameter_value
+                hyperparameter: optimal_acquisition_test_value
             }
             if model_reference == None:
                 model = NeuralNetworkModel(training_data_file_name = model_training_data_file_name, **hyperparameter_reference)
             else:
                 model = NeuralNetworkModel(training_data_file_name = model_training_data_file_name, text_reference = model_reference, **hyperparameter_reference)
-            optimal_cost_value = model.average_validation_cost_values_over_epochs[model.minimum_cost_index]
-            training_data_points.append((optimal_acquisition_hyperparameter_value, optimal_cost_value))
-            optimal_cost_values.append(optimal_cost_value)
-            if optimal_cost_value < minimum_optimal_cost_value:
-                minimum_optimal_cost_value = optimal_cost_value
-            print("Step D - Iteration " + str(iteration))
-            print(optimal_acquisition_hyperparameter_value)
-            print(optimal_cost_value)
-            print(minimum_optimal_cost_value)
+            training_data_points.append((optimal_acquisition_test_value, model.get_average_validation_cost_values_over_epochs()[model.get_minimum_cost_index()]))
+            print("Evaluation " + str(len(training_data_points)) + " - " + str(optimal_acquisition_test_value) + " - " + str(training_data_points[-1]))
+            iterations = range(1, len(training_data_points) + 1)
+            objective_cost_values = [point[1] for point in training_data_points]
             if show:
-                plt.plot(range(1, len(optimal_cost_values) + 1), optimal_cost_values, label = "Resulting Cost")
-                plt.xlabel("Hyperparameter Test Values")
-                plt.ylabel("Cost Values")
-                plt.title("Acquisition Convergence")
+                plt.plot(iterations, objective_cost_values, label = "Objective Cost")
+                plt.xlabel("Iteration")
+                plt.ylabel("Cost Value")
+                plt.title("Convergence")
                 plt.legend()
                 plt.show()
-            iteration += 1
-        optimal_hyperparameter_values[hyperparameter] = optimal_acquisition_hyperparameter_values[-1]
-        print("Step E")
+        optimal_hyperparameter_values[hyperparameter] = training_data_points[-1][0]
+        print(hyperparameter + " - " + str(training_data_points[-1][0]))
     return optimal_hyperparameter_values
 
 main()
