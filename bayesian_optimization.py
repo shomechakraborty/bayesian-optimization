@@ -1,60 +1,4 @@
 import math, random, statistics as stats, numpy as np, matplotlib.pyplot as plt
-from decimal import Decimal
-from neural_network_class import NeuralNetworkModel
-
-def main():
-    hyperparameters = {
-    "model_size": (5, True, 2, 7, 6),
-    "neuron_size_base": (2, True, 2, 4, 3),
-    "training_epochs": (75, True, 1, 750, 750),
-    "training_data_proportion": (0.75, False, 0.01, 0.99, 1000),
-    "delta": (1.0, False, 0, 10, 1000),
-    "learning_rate": (0.01, False, 0, 0.1, 1000),
-    "learning_rate_decay_rate": (0.001, False, 0, 0.01, 1000),
-    "momentum_factor": (0.9, False, 0, 1, 1000),
-    "max_norm_benchmark": (90, False, 0.01, 99.99, 1000),
-    "l2": (0.01, False, 0, 0.1, 1000)
-    }
-
-    optimal_hyperparameter_values = optimize_neural_network_hyperparameters("trial-12-training-data.csv", hyperparameters, 0.5, False)
-    print(optimal_hyperparameter_values)
-
-    default_model = NeuralNetworkModel(training_data_file_name = "trial-12-training-data.csv")
-    optimized_model = NeuralNetworkModel(training_data_file_name = "trial-12-training-data.csv", model_size = 2)
-
-    default_model_cost = default_model.get_average_validation_cost_values_over_epochs()[default_model.get_minimum_cost_index()]
-    optimized_model_cost = optimized_model.get_average_validation_cost_values_over_epochs()[optimized_model.get_minimum_cost_index()]
-    cost_improvement = calculate_error(default_model_cost, optimized_model_cost)
-
-    print("Default Model Cost - " + str(default_model_cost))
-    print("Optimized Model Cost - " + str(optimized_model_cost))
-    print("Cost Improvement - " + str(cost_improvement))
-
-    default_model_testing_se = []
-    optimized_model_testing_se = []
-
-    plt.plot(range(len(optimized_model.get_average_validation_cost_values_over_epochs())), optimized_model.get_average_validation_cost_values_over_epochs(), label = "Validation Cost")
-    plt.plot(range(len(optimized_model.get_training_cost_values_over_epochs())), optimized_model.get_training_cost_values_over_epochs(), label = "Training Cost")
-    plt.xlabel("Epoch")
-    plt.ylabel("Cost Value")
-    plt.title("Validation vs. Training Costs Over Epochs")
-    plt.legend()
-    plt.show()
-
-    file = open("testing-data.csv")
-    for line in file:
-        data_line = [float(value) for value in line.strip().split(",")]
-        inputs = data_line[:len(data_line) - 1]
-        target = data_line[-1]
-        default_model_testing_se.append(pow(target - default_model.run_model(inputs), 2))
-        optimized_model_testing_se.append(pow(target - optimized_model.run_model(inputs), 2))
-    default_model_testing_rmse = math.sqrt(stats.mean(default_model_testing_se))
-    optimized_model_testing_rmse = math.sqrt(stats.mean(optimized_model_testing_se))
-    testing_rmse_improvement = calculate_error(default_model_testing_rmse, optimized_model_testing_rmse)
-
-    print("Default Model Testing RMSE - " + str(default_model_testing_rmse))
-    print("Optimized Model Testing RMSE - " + str(optimized_model_testing_rmse))
-    print("Testing RMSE Improvement - " + str(testing_rmse_improvement))
 
 """This method calculates the covariance value between any 2 parameter values using the Matern 5/2
 Kernel Covariance Function, necessary for constructing covariance matrices."""
@@ -204,7 +148,7 @@ determine the optimal value for each hyperparameter, based on the model's traini
 keeps evaluating optimal acquisition hyperparameter values for a given parameter until the the last 3 optimal
 acquisition hyperparameter values are close enough - with an error of less than 1% - to be considered similar
 (or if the acquisition function returns the same values)."""
-def optimize_neural_network_hyperparameters(model_training_data_file_name, hyperparameters, slack, show, model_reference = None):
+def optimize_neural_network_hyperparameters(neural_network, data_reference, hyperparameters, cost_attribute_reference, slack, show):
     optimal_hyperparameter_values = {}
     for hyperparameter in hyperparameters:
         success = False
@@ -224,17 +168,16 @@ def optimize_neural_network_hyperparameters(model_training_data_file_name, hyper
                 hyperparameter_reference = {
                     hyperparameter: hyperparameters[hyperparameter][0]
                 }
-                if model_reference == None:
-                    model = NeuralNetworkModel(training_data_file_name = model_training_data_file_name, **hyperparameter_reference)
-                else:
-                    model = NeuralNetworkModel(training_data_file_name = model_training_data_file_name, text_reference = model_reference, **hyperparameter_reference)
-                training_data_points.append((hyperparameters[hyperparameter][0], model.get_average_validation_cost_values_over_epochs()[model.get_minimum_cost_index()]))
+                model = neural_network(**data_reference, **hyperparameter_reference)
+                objective_cost = eval("model." + cost_attribute_reference["cost"])
+                training_data_points.append((hyperparameters[hyperparameter][0], objective_cost))
                 print("Evaluation " + str(len(training_data_points)) + " - " + str(hyperparameters[hyperparameter][0]) + " - " + str(training_data_points[-1]))
                 while not(len(training_data_points) >= 3 and calculate_error(training_data_points[-3][0], training_data_points[-2][0]) <= 0.01 and calculate_error(training_data_points[-2][0], training_data_points[-1][0]) <= 0.01 and calculate_error(training_data_points[-3][0], training_data_points[-1][0]) <= 0.01):
+                    noise = stats.variance(model.get_average_validation_cost_values_over_epochs())
                     if show:
-                        optimal_acquisition_test_value = calculate_optimal_acquisition_value(training_data_points, model.get_noise(), slack, test_space, True)
+                        optimal_acquisition_test_value = calculate_optimal_acquisition_value(training_data_points, noise, slack, test_space, True)
                     else:
-                        optimal_acquisition_test_value = calculate_optimal_acquisition_value(training_data_points, model.get_noise(), slack, test_space, False)
+                        optimal_acquisition_test_value = calculate_optimal_acquisition_value(training_data_points, noise, slack, test_space, False)
                     if any(point[0] == optimal_acquisition_test_value for point in training_data_points):
                         training_data_points.append((optimal_acquisition_test_value, None))
                         print("Break - " + str(optimal_acquisition_test_value))
@@ -242,11 +185,9 @@ def optimize_neural_network_hyperparameters(model_training_data_file_name, hyper
                     hyperparameter_reference = {
                         hyperparameter: optimal_acquisition_test_value
                     }
-                    if model_reference == None:
-                        model = NeuralNetworkModel(training_data_file_name = model_training_data_file_name, **hyperparameter_reference)
-                    else:
-                        model = NeuralNetworkModel(training_data_file_name = model_training_data_file_name, text_reference = model_reference, **hyperparameter_reference)
-                    training_data_points.append((optimal_acquisition_test_value, model.get_average_validation_cost_values_over_epochs()[model.get_minimum_cost_index()]))
+                    model = neural_network(**data_reference, **hyperparameter_reference)
+                    objective_cost = eval("model." + cost_attribute_reference["cost"])
+                    training_data_points.append((optimal_acquisition_test_value, objective_cost))
                     print("Evaluation " + str(len(training_data_points)) + " - " + str(optimal_acquisition_test_value) + " - " + str(training_data_points[-1]))
                     iterations = range(1, len(training_data_points) + 1)
                     objective_cost_values = [point[1] for point in training_data_points]
@@ -263,5 +204,3 @@ def optimize_neural_network_hyperparameters(model_training_data_file_name, hyper
             except Exception:
                 print("Error - Retrying")
     return optimal_hyperparameter_values
-
-main()
