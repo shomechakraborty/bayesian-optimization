@@ -148,7 +148,7 @@ determine the optimal value for each hyperparameter, based on the model's traini
 keeps evaluating optimal acquisition hyperparameter values for a given parameter until the the last 3 optimal
 acquisition hyperparameter values are close enough - with an error of less than 1% - to be considered similar
 (or if the acquisition function returns the same values)."""
-def optimize_neural_network_hyperparameters(neural_network, data_reference, hyperparameters, cost_attribute_reference, slack, show):
+def optimize_neural_network_hyperparameters(neural_network, feed_data_reference, hyperparameters, cost_attribute_reference, slack, show):
     optimal_hyperparameter_values = {}
     for hyperparameter in hyperparameters:
         success = False
@@ -168,10 +168,9 @@ def optimize_neural_network_hyperparameters(neural_network, data_reference, hype
                 hyperparameter_reference = {
                     hyperparameter: hyperparameters[hyperparameter][0]
                 }
-                model = neural_network(**data_reference, **hyperparameter_reference)
+                model = neural_network(**feed_data_reference, **hyperparameter_reference)
                 objective_cost = eval("model." + cost_attribute_reference["cost"])
                 training_data_points.append((hyperparameters[hyperparameter][0], objective_cost))
-                print("Evaluation " + str(len(training_data_points)) + " - " + str(hyperparameters[hyperparameter][0]) + " - " + str(training_data_points[-1]))
                 while not(len(training_data_points) >= 3 and calculate_error(training_data_points[-3][0], training_data_points[-2][0]) <= 0.01 and calculate_error(training_data_points[-2][0], training_data_points[-1][0]) <= 0.01 and calculate_error(training_data_points[-3][0], training_data_points[-1][0]) <= 0.01):
                     noise = stats.variance(model.get_average_validation_cost_values_over_epochs())
                     if show:
@@ -180,15 +179,13 @@ def optimize_neural_network_hyperparameters(neural_network, data_reference, hype
                         optimal_acquisition_test_value = calculate_optimal_acquisition_value(training_data_points, noise, slack, test_space, False)
                     if any(point[0] == optimal_acquisition_test_value for point in training_data_points):
                         training_data_points.append((optimal_acquisition_test_value, None))
-                        print("Break - " + str(optimal_acquisition_test_value))
                         break
                     hyperparameter_reference = {
                         hyperparameter: optimal_acquisition_test_value
                     }
-                    model = neural_network(**data_reference, **hyperparameter_reference)
+                    model = neural_network(**feed_data_reference, **hyperparameter_reference)
                     objective_cost = eval("model." + cost_attribute_reference["cost"])
                     training_data_points.append((optimal_acquisition_test_value, objective_cost))
-                    print("Evaluation " + str(len(training_data_points)) + " - " + str(optimal_acquisition_test_value) + " - " + str(training_data_points[-1]))
                     iterations = range(1, len(training_data_points) + 1)
                     objective_cost_values = [point[1] for point in training_data_points]
                     if show:
@@ -199,8 +196,7 @@ def optimize_neural_network_hyperparameters(neural_network, data_reference, hype
                         plt.legend()
                         plt.show()
                 optimal_hyperparameter_values[hyperparameter] = training_data_points[-1][0]
-                print(hyperparameter + " - " + str(training_data_points[-1][0]))
                 success = True
             except Exception:
-                print("Error - Retrying")
+                continue
     return optimal_hyperparameter_values
